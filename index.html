@@ -441,7 +441,17 @@
   };
 
   const COINGECKO = 'https://api.coingecko.com/api/v3';
-  const NEWS_API  = 'https://min-api.cryptocompare.com/data/v2/news/?lang=EN&sortOrder=latest&categories=';
+
+  // RSS → JSON service (CORS-vriendelijk, werkt overal)
+  const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
+
+  // RSS bronnen per coin (CoinTelegraph tag-feeds)
+  const NEWS_RSS = {
+    XRP:  'https://cointelegraph.com/rss/tag/xrp',
+    XLM:  'https://cointelegraph.com/rss/tag/stellar',
+    HBAR: 'https://cointelegraph.com/rss/tag/hedera',
+    FLR:  'https://cointelegraph.com/rss/tag/flare-network',
+  };
 
   let chartInstance = null;
   let activeCoinKey = 'XRP';
@@ -628,15 +638,35 @@
     document.getElementById('news-grid').innerHTML =
       '<div class="news-empty"><div class="spinner"></div></div>';
 
+    const rssUrl = NEWS_RSS[cat];
+    const apiUrl = RSS2JSON + encodeURIComponent(rssUrl);
+
     try {
-      const res  = await fetch(NEWS_API + cat);
+      const res  = await fetch(apiUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      const articles = (data.Data || []).slice(0, 12);
+
+      if (data.status !== 'ok' || !data.items?.length) {
+        throw new Error('Geen artikelen');
+      }
+
+      // Zet rss2json-formaat om naar intern formaat
+      const articles = data.items.slice(0, 12).map(item => ({
+        title:       item.title,
+        url:         item.link,
+        body:        (item.description || item.content || '')
+                       .replace(/<[^>]*>/g, '')
+                       .substring(0, 220),
+        imageurl:    item.thumbnail || '',
+        source_info: { name: data.feed?.title || 'CoinTelegraph' },
+        published_on: Math.floor(new Date(item.pubDate).getTime() / 1000),
+      }));
+
       newsCache[cat] = articles;
       renderNews(articles);
     } catch (e) {
       document.getElementById('news-grid').innerHTML =
-        `<div class="news-error">⚠️ Nieuws kon niet worden geladen. Controleer je internetverbinding of probeer het later opnieuw.</div>`;
+        `<div class="news-error">⚠️ Nieuws kon niet worden geladen (${e.message}). Probeer het later opnieuw.</div>`;
     }
   }
 
